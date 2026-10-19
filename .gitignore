@@ -1,0 +1,12 @@
+# 依赖 / 环境
+node_modules/
+.pnpm/
+
+# 运行日志(本插件会写到插件目录旁)
+ollama-debug.log
+ollama-run.log
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp

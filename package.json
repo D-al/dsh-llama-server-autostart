@@ -1,0 +1,38 @@
+{
+  "name": "dsh-llama-server-autostart",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 插件: 随 dsh 启动在后台无窗口拉起本地 llama-server(llama.cpp), 提供 OpenAI 兼容接口; 退出 dsh 时关闭本次拉起的实例。",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "llama.cpp",
+    "llama-server",
+    "llm",
+    "local-model"
+  ],
+  "license": "MIT",
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "displayName": "llama-server 自动启动",
+    "description": "随 DeepSeek Harness 启动, 无窗口拉起本地 llama-server(默认 D:/llama.cpp/build/bin, 端口 8080, OpenAI 兼容); 退出 dsh 时关闭本次拉起的实例。",
+    "engines": {
+      "dsh": ">=0.2.0-rc.2"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

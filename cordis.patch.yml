@@ -1,0 +1,5 @@
+# Bundle patch for dsh-llama-server-autostart.
+# 顶层 YAML 数组; 装进 dsh.profile.bundles 后由 dsh 应用, 把本插件挂进插件树。
+- insert:
+    - id: llama-server-autostart
+      name: dsh-llama-server-autostart

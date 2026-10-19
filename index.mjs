@@ -30,7 +30,11 @@ const DEFAULT_DIR = 'D:/llama.cpp/build/bin'          // llama-server.exe 所在
 const DEFAULT_MODEL = 'D:/llama.cpp/models/Qwen3.5-9B-Q4_K_M.gguf'
 const DEFAULT_MMPROJ = 'D:/llama.cpp/models/mmproj-F16.gguf'
 // 投机解码草稿模型(同系列 0.8B, 词表 248320 与主模型一致); 置空可关闭投机解码
-const DEFAULT_DRAFT = 'D:/llama.cpp/models/Qwen3.5-0.8B-Q4_0.gguf'
+// 实测结论(237 个样本): 开启后生成速度 20 → 15.83 tok/s, 慢约 21%, 且多占 ~600MiB
+// 显存(57344 上下文时仅剩 135MiB)。原因: 0.8B 草稿需串行跑 6 次 batch=1 前向,
+// 每次重搬 483MiB 权重; 0.8B→9B 接受率过低, 提议大量被否决, 入不敷出。故默认关闭。
+// 想再试: 设 LLAMA_DRAFT='D:/llama.cpp/models/Qwen3.5-0.8B-Q4_0.gguf'
+const DEFAULT_DRAFT = ''
 // 57344(56K): 实测加载草稿模型后 8192 时仍空闲 747MiB, 按 ~9.6MiB/1k 折算可容纳 ~7 万 token;
 // 取 57344 足以覆盖现有最大会话(实测最大请求 50906 tokens)且留 ~500MiB 余量。
 const DEFAULT_CTX = '57344'

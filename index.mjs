@@ -74,6 +74,9 @@ export function apply(ctx, config) {
   const draft = process.env.LLAMA_DRAFT !== undefined
     ? process.env.LLAMA_DRAFT
     : ((config && config.llamaDraft) || DEFAULT_DRAFT)
+  // n-gram 投机解码: 不需要草稿模型, 直接从上下文里找重复 n-gram 提议后续 token。
+  // 零额外显存(对比 0.8B 草稿方案省 ~600MiB 且无串行小模型前向)。设 LLAMA_SPEC_TYPE=none 关闭。
+  const specType = process.env.LLAMA_SPEC_TYPE || (config && config.llamaSpecType) || 'ngram-simple'
   const ctxSize = String(process.env.LLAMA_CTX || (config && config.llamaCtx) || DEFAULT_CTX)
   const runLog = process.env.LLAMA_RUN_LOG || path.join(__dirname, 'llama-server-run.log')
 
@@ -128,6 +131,17 @@ export function apply(ctx, config) {
             '--spec-draft-n-ubatch', '256', // 草稿物理批调小, 省显存
             '-ctkd', 'q4_0',                // 草稿 KV 量化, 再省一点显存
             '-ctvd', 'q4_0'
+          )
+        }
+        // n-gram 投机解码(默认开启): 无草稿模型, 靠上下文重复模式提议, 零额外显存。
+        // 对代码/工具调用/路径等重复模式内容接受率较高。
+        if (specType && specType !== 'none') {
+          args.push(
+            '--spec-type', specType,
+            '--spec-draft-n-max', '8',        // 每轮最多验证 8+1 个 token
+            '--spec-ngram-simple-size-n', '12', // 查找用 n-gram 长度(默认 12)
+            '--spec-ngram-simple-size-m', '32', // 每次起草长度(默认 48, 收保守些)
+            '--spec-ngram-simple-min-hits', '2' // 至少命中 2 次才提议, 提高接受率
           )
         }
 

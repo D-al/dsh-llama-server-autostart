@@ -31,8 +31,9 @@ const DEFAULT_MODEL = 'D:/llama.cpp/models/Qwen3.5-9B-Q4_K_M.gguf'
 const DEFAULT_MMPROJ = 'D:/llama.cpp/models/mmproj-F16.gguf'
 // 投机解码草稿模型(同系列 0.8B, 词表 248320 与主模型一致); 置空可关闭投机解码
 const DEFAULT_DRAFT = 'D:/llama.cpp/models/Qwen3.5-0.8B-Q4_0.gguf'
-// 开启投机解码后草稿模型也要占显存, 先压到 8192 腾空间(后续视余量再加回)
-const DEFAULT_CTX = '8192'
+// 57344(56K): 实测加载草稿模型后 8192 时仍空闲 747MiB, 按 ~9.6MiB/1k 折算可容纳 ~7 万 token;
+// 取 57344 足以覆盖现有最大会话(实测最大请求 50906 tokens)且留 ~500MiB 余量。
+const DEFAULT_CTX = '57344'
 
 // 端口探测优先级: LLAMA_PORT > config.llamaPort > 8080
 function resolvePort(config) {

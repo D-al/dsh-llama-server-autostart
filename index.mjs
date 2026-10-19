@@ -83,6 +83,8 @@ export function apply(ctx, config) {
         // mmproj 提供视觉能力(与 ollama 的 qwen3.5:9b vision 对齐)。
         // 注意: 本机 llama.cpp 0.7.0-dev 已不支持 -mm / --speculative-decode /
         // --kv-cache-quant(会导致 "error: invalid argument" 进程秒退 code=1), 故不写。
+        // 但投机解码本身**是支持的**, 只是旗标改名: --spec-draft-model(-md) +
+        // --spec-draft-n-max, 旧名 --draft/--draft-max 已被移除(--help 有说明)。
         const args = [
           '-m', model,
           '-c', ctxSize,
@@ -96,6 +98,11 @@ export function apply(ctx, config) {
           '-t', '8',
           // 批处理大小 (提升长 prompt 预填充吞吐量; 9B 模型在 4060 8GB 上 512 安全)
           '-b', '512',
+          // 加载模式: mmap + mlock —— 把模型锁定在物理内存, 避免被系统换出造成偶发卡顿。
+          // 本机 64GB 内存、空闲约 49GB, 锁定 5.7GB 模型毫无压力, 属零成本优化。
+          '-lm', 'mmap+mlock',
+          // 进程优先级提到 high(2), 减少调度抖动。不用 realtime(3): 风险高、收益低。
+          '--prio', '2',
           '--port', String(port),
           '--host', '127.0.0.1',
         ]

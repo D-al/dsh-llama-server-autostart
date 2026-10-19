@@ -29,7 +29,10 @@ const DEFAULT_PORT = 8080
 const DEFAULT_DIR = 'D:/llama.cpp/build/bin'          // llama-server.exe 所在目录
 const DEFAULT_MODEL = 'D:/llama.cpp/models/Qwen3.5-9B-Q4_K_M.gguf'
 const DEFAULT_MMPROJ = 'D:/llama.cpp/models/mmproj-F16.gguf'
-const DEFAULT_CTX = '49152'
+// 投机解码草稿模型(同系列 0.8B, 词表 248320 与主模型一致); 置空可关闭投机解码
+const DEFAULT_DRAFT = 'D:/llama.cpp/models/Qwen3.5-0.8B-Q4_0.gguf'
+// 开启投机解码后草稿模型也要占显存, 先压到 8192 腾空间(后续视余量再加回)
+const DEFAULT_CTX = '8192'
 
 // 端口探测优先级: LLAMA_PORT > config.llamaPort > 8080
 function resolvePort(config) {
@@ -63,6 +66,9 @@ export function apply(ctx, config) {
   const exe = path.join(dir, 'llama-server.exe')
   const model = process.env.LLAMA_MODEL || (config && config.llamaModel) || DEFAULT_MODEL
   const mmproj = process.env.LLAMA_MMPROJ || (config && config.llamaMmproj) || DEFAULT_MMPROJ
+  const draft = process.env.LLAMA_DRAFT !== undefined
+    ? process.env.LLAMA_DRAFT
+    : ((config && config.llamaDraft) || DEFAULT_DRAFT)
   const ctxSize = String(process.env.LLAMA_CTX || (config && config.llamaCtx) || DEFAULT_CTX)
   const runLog = process.env.LLAMA_RUN_LOG || path.join(__dirname, 'llama-server-run.log')
 
@@ -107,6 +113,18 @@ export function apply(ctx, config) {
           '--host', '127.0.0.1',
         ]
         if (mmproj && fs.existsSync(mmproj)) args.push('--mmproj', mmproj)
+        // 投机解码: 0.8B 草稿提议 → 9B 主模型把 N 个候选放进同一批验证。
+        // 关键收益: 权重每批只读一次而非 N 次, 因此带宽受限场景同样有效。
+        // 草稿文件不存在时自动跳过, 便于回退。
+        if (draft && fs.existsSync(draft)) {
+          args.push(
+            '--spec-draft-model', draft,
+            '--spec-draft-n-max', '6',      // 一次起草 6 个 token(默认 3)
+            '--spec-draft-n-ubatch', '256', // 草稿物理批调小, 省显存
+            '-ctkd', 'q4_0',                // 草稿 KV 量化, 再省一点显存
+            '-ctvd', 'q4_0'
+          )
+        }
 
         // 无窗口启动: stdio 给真实日志文件 + windowsHide + detached + CREATE_NO_WINDOW。
         // 前置 CUDA 运行库目录到 PATH, 确保 llama-server.exe 能加载 cudart/cublas

@@ -85,7 +85,9 @@ export function apply(ctx, config) {
           '-m', model,
           '-c', ctxSize,
           '-ngl', '99',
-          '-fa',
+          // 新版 llama.cpp(0.7.0+) 的 -fa/--flash-attn 需要显式值(on|off|auto);
+          // 只写 -fa 会把后面的 --cache-type-k 当成它的值, 报 "unknown value for --flash-attn" 后退出。
+          '-fa', 'on',
           '--cache-type-k', 'q8_0',
           '--cache-type-v', 'q8_0',
           '--port', String(port),
@@ -94,9 +96,17 @@ export function apply(ctx, config) {
         if (mmproj && fs.existsSync(mmproj)) args.push('--mmproj', mmproj)
 
         // 无窗口启动: stdio 给真实日志文件 + windowsHide + detached + CREATE_NO_WINDOW。
+        // 前置 CUDA 运行库目录到 PATH, 确保 llama-server.exe 能加载 cudart/cublas
+        // (本机编译用 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5)。
+        const cudaBin = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.5\\bin'
+        const spawnEnv = { ...process.env }
+        if (fs.existsSync(cudaBin)) {
+          spawnEnv.PATH = cudaBin + ';' + (spawnEnv.PATH || '')
+        }
         const logFd = fs.openSync(runLog, 'a')
         child = spawn(exe, args, {
           cwd: dir,
+          env: spawnEnv,
           detached: true,
           stdio: ['ignore', logFd, logFd],
           windowsHide: true,

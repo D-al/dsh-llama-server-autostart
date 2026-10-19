@@ -29,7 +29,7 @@ const DEFAULT_PORT = 8080
 const DEFAULT_DIR = 'D:/llama.cpp/build/bin'          // llama-server.exe 所在目录
 const DEFAULT_MODEL = 'D:/llama.cpp/models/Qwen3.5-9B-Q4_K_M.gguf'
 const DEFAULT_MMPROJ = 'D:/llama.cpp/models/mmproj-F16.gguf'
-const DEFAULT_CTX = '32768'
+const DEFAULT_CTX = '40960'
 
 // 端口探测优先级: LLAMA_PORT > config.llamaPort > 8080
 function resolvePort(config) {
@@ -78,8 +78,8 @@ export function apply(ctx, config) {
         if (!fs.existsSync(model)) { dbg('未找到模型: ' + model); return }
         dbg('启动 llama-server: exe=' + exe + ' model=' + model + ' port=' + port + ' ctx=' + ctxSize)
 
-        // 启动参数: 全 GPU 层 + flash attention + KV cache q8_0 量化(8GB 显卡跑 32K
-        // 上下文的关键, 与 Ollama 侧 OLLAMA_KV_CACHE_TYPE=q8_0 对齐);
+        // 启动参数: 全 GPU 层 + flash attention + KV cache q4_0 量化(8GB 显卡跑 40K
+        // 上下文不溢出且不掉速的关键, 比 q8_0 省一半显存);
         // mmproj 提供视觉能力(与 ollama 的 qwen3.5:9b vision 对齐)。
         // 注意: 本机 llama.cpp 0.7.0-dev 已不支持 -mm / --speculative-decode /
         // --kv-cache-quant(会导致 "error: invalid argument" 进程秒退 code=1), 故不写。
@@ -90,12 +90,12 @@ export function apply(ctx, config) {
           // 新版 llama.cpp(0.7.0+) 的 -fa/--flash-attn 需要显式值(on|off|auto);
           // 只写 -fa 会把后面的 --cache-type-k 当成它的值, 报 "unknown value for --flash-attn" 后退出。
           '-fa', 'on',
-          '--cache-type-k', 'q8_0',
-          '--cache-type-v', 'q8_0',
+          '--cache-type-k', 'q4_0',
+          '--cache-type-v', 'q4_0',
           // 多线程推理 (CPU 线程数, 8 为保守值)
           '-t', '8',
-          // 批处理大小 (提升吞吐量)
-          '-b', '16',
+          // 批处理大小 (提升长 prompt 预填充吞吐量; 9B 模型在 4060 8GB 上 512 安全)
+          '-b', '512',
           '--port', String(port),
           '--host', '127.0.0.1',
         ]

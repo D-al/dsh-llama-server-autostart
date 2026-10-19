@@ -97,10 +97,14 @@ export function apply(ctx, config) {
 
         // 无窗口启动: stdio 给真实日志文件 + windowsHide + detached + CREATE_NO_WINDOW。
         // 前置 CUDA 运行库目录到 PATH, 确保 llama-server.exe 能加载 cudart/cublas
-        // (本机编译用 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5)。
-        const cudaBin = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.5\\bin'
+        // (本机 CUDA 已迁移到 D:\CUDA\v12.5; 此处 D 优先、C 兜底, 迁移过渡期都兼容)。
+        const cudaBinCandidates = [
+          'D:\\CUDA\\v12.5\\bin',
+          'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.5\\bin'
+        ]
         const spawnEnv = { ...process.env }
-        if (fs.existsSync(cudaBin)) {
+        const cudaBin = cudaBinCandidates.find(p => fs.existsSync(p))
+        if (cudaBin) {
           spawnEnv.PATH = cudaBin + ';' + (spawnEnv.PATH || '')
         }
         const logFd = fs.openSync(runLog, 'a')

@@ -29,7 +29,7 @@ const DEFAULT_PORT = 8080
 const DEFAULT_DIR = 'D:/llama.cpp/build/bin'          // llama-server.exe 所在目录
 const DEFAULT_MODEL = 'D:/llama.cpp/models/Qwen3.5-9B-Q4_K_M.gguf'
 const DEFAULT_MMPROJ = 'D:/llama.cpp/models/mmproj-F16.gguf'
-const DEFAULT_CTX = '43008'
+const DEFAULT_CTX = '49152'
 
 // 端口探测优先级: LLAMA_PORT > config.llamaPort > 8080
 function resolvePort(config) {

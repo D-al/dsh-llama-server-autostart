@@ -76,7 +76,12 @@ export function apply(ctx, config) {
     : ((config && config.llamaDraft) || DEFAULT_DRAFT)
   // n-gram 投机解码: 不需要草稿模型, 直接从上下文里找重复 n-gram 提议后续 token。
   // 零额外显存(对比 0.8B 草稿方案省 ~600MiB 且无串行小模型前向)。设 LLAMA_SPEC_TYPE=none 关闭。
-  const specType = process.env.LLAMA_SPEC_TYPE || (config && config.llamaSpecType) || 'ngram-simple'
+  // 实测: n-gram 投机解码接受率仅 27.7%(62 accepted / 224 generated, mean len 9.86),
+  // 生成速度 15.28 tok/s, 反而比不开启(~20 tok/s)慢约 24%, 故默认关闭('none')。
+  // 根因: Qwen3.5 是 GatedDeltaNet 混合架构, 线性注意力的循环状态更新无法像纯注意力
+  // 那样靠增大 batch 摊薄开销, 且接受率过低 ⇒ 投机解码在这类模型 + 8GB 卡上不划算。
+  // 想再试: LLAMA_SPEC_TYPE=ngram-simple(或 ngram-cache / ngram-map-k 等)
+  const specType = process.env.LLAMA_SPEC_TYPE || (config && config.llamaSpecType) || 'none'
   const ctxSize = String(process.env.LLAMA_CTX || (config && config.llamaCtx) || DEFAULT_CTX)
   const runLog = process.env.LLAMA_RUN_LOG || path.join(__dirname, 'llama-server-run.log')
 

@@ -81,6 +81,8 @@ export function apply(ctx, config) {
         // 启动参数: 全 GPU 层 + flash attention + KV cache q8_0 量化(8GB 显卡跑 32K
         // 上下文的关键, 与 Ollama 侧 OLLAMA_KV_CACHE_TYPE=q8_0 对齐);
         // mmproj 提供视觉能力(与 ollama 的 qwen3.5:9b vision 对齐)。
+        // 注意: 本机 llama.cpp 0.7.0-dev 已不支持 -mm / --speculative-decode /
+        // --kv-cache-quant(会导致 "error: invalid argument" 进程秒退 code=1), 故不写。
         const args = [
           '-m', model,
           '-c', ctxSize,
@@ -90,6 +92,10 @@ export function apply(ctx, config) {
           '-fa', 'on',
           '--cache-type-k', 'q8_0',
           '--cache-type-v', 'q8_0',
+          // 多线程推理 (CPU 线程数, 8 为保守值)
+          '-t', '8',
+          // 批处理大小 (提升吞吐量)
+          '-b', '16',
           '--port', String(port),
           '--host', '127.0.0.1',
         ]

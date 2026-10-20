@@ -46,6 +46,11 @@ const DEFAULT_CPU_MOE = ''        // '1' = 所有 MoE 专家权重留在 CPU
 const DEFAULT_N_CPU_MOE = ''      // 数字 = 前 N 层的专家留在 CPU
 const DEFAULT_MOE_CACHE_MIB = ''  // 显存中给 CPU 专家的缓存大小(MiB)
 const DEFAULT_THREADS = '8'
+// 加载模式: 默认 mmap+mlock(9B dense 用, 锁内存防换出);
+// MoE 大模型用 cpu-moe 时, mmap 的按需分页会在 CPU 专家权重上产生大量缺页停顿,
+// 拖慢解码。llama-server 官方建议改 --load-mode none(整模型预读进堆, 消除页错误),
+// 实测 35B-A3B 解码 15.8 → 22.8 tok/s。故 35B 配置须设 LLAMA_LOAD_MODE=none。
+const DEFAULT_LOAD_MODE = 'mmap+mlock'
 
 // 读取插件旁的 .env.llama —— 此前这个文件是"死"的(写了整套参数但插件从不读, 导致
 // 里面过时的 LLAMA_CTX=32768 等从未生效, 也让切模型/调参必须改代码)。
@@ -123,6 +128,7 @@ export function apply(ctx, config) {
   const cpuMoe = getenv('LLAMA_CPU_MOE') || DEFAULT_CPU_MOE
   const nCpuMoe = getenv('LLAMA_N_CPU_MOE') || DEFAULT_N_CPU_MOE
   const moeCacheMib = getenv('LLAMA_MOE_CACHE_MIB') || DEFAULT_MOE_CACHE_MIB
+  const loadMode = getenv('LLAMA_LOAD_MODE') || DEFAULT_LOAD_MODE
 
   ctx.effect(() => {
     let child = null
@@ -157,9 +163,10 @@ export function apply(ctx, config) {
           '-t', threads,
           // 批处理大小 (提升长 prompt 预填充吞吐量; 9B 模型在 4060 8GB 上 512 安全)
           '-b', '512',
-          // 加载模式: mmap + mlock —— 把模型锁定在物理内存, 避免被系统换出造成偶发卡顿。
-          // 本机 64GB 内存、空闲约 49GB, 锁定 5.7GB 模型毫无压力, 属零成本优化。
-          '-lm', 'mmap+mlock',
+          // 加载模式(可配): 默认 mmap+mlock 把模型锁在物理内存, 避免被换出造成偶发卡顿;
+          // 9B dense 用默认即可。MoE 大模型(cpu-moe)须设 LLAMA_LOAD_MODE=none ——
+          // mmap 的按需分页会让 CPU 专家权重频繁缺页, 拖慢解码(实测 15.8→22.8 tok/s 的关键)。
+          '-lm', loadMode,
           // 进程优先级提到 high(2), 减少调度抖动。不用 realtime(3): 风险高、收益低。
           '--prio', '2',
           // 显式绑定端口与回环地址 (与 cordis provider baseURL 127.0.0.1:8080 对齐;

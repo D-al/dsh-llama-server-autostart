@@ -108,7 +108,19 @@ export function apply(ctx, config) {
   const dir = getenv('LLAMA_SERVER_DIR') || (config && config.llamaServerDir) || DEFAULT_DIR
   const exe = path.join(dir, 'llama-server.exe')
   const model = getenv('LLAMA_MODEL') || (config && config.llamaModel) || DEFAULT_MODEL
-  const mmproj = getenv('LLAMA_MMPROJ') || (config && config.llamaMmproj) || DEFAULT_MMPROJ
+  // mmproj(视觉投影): 默认 9B 的 mmproj 路径仅对 9B 正确。
+  // 关键: 若显式把 LLAMA_MMPROJ 设为空串(如 35B 块), 表示"禁用视觉" ——
+  //   因为 9B 与 35B 的 mmproj 不通用, 绝不能回退到 DEFAULT_MMPROJ。
+  // 仅当该键完全未出现(undefined)时, 才用默认/配置(对 9B 是正确默认)。
+  const mmprojRaw = getenv('LLAMA_MMPROJ')
+  let mmproj
+  if (mmprojRaw === undefined) {
+    mmproj = (config && config.llamaMmproj) || DEFAULT_MMPROJ
+  } else if (mmprojRaw === '') {
+    mmproj = ''   // 显式禁用视觉
+  } else {
+    mmproj = mmprojRaw
+  }
   const draft = getenv('LLAMA_DRAFT') !== undefined
     ? getenv('LLAMA_DRAFT')
     : ((config && config.llamaDraft) || DEFAULT_DRAFT)

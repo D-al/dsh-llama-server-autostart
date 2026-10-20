@@ -51,6 +51,11 @@ const DEFAULT_THREADS = '8'
 // 拖慢解码。llama-server 官方建议改 --load-mode none(整模型预读进堆, 消除页错误),
 // 实测 35B-A3B 解码 15.8 → 22.8 tok/s。故 35B 配置须设 LLAMA_LOAD_MODE=none。
 const DEFAULT_LOAD_MODE = 'mmap+mlock'
+// 批处理大小: 提升长 prompt 预填充吞吐。CPU+GPU 混合 MoE 对 batch 极敏感——官方 llama.cpp
+// 指南指出 op-offload 在 batch≥阈值时把 CPU 专家整体搬上 GPU 做 prompt 处理, 实测 512→2048
+// 使 16k 预填充从 ~326 翻倍到 ~665 tok/s, 解码不受影响; 再大(4096)显存逼近 8GB 易 OOM, 故默认 2048。
+const DEFAULT_BATCH = '2048'
+const DEFAULT_UBATCH = '2048'
 
 // 读取插件旁的 .env.llama —— 此前这个文件是"死"的(写了整套参数但插件从不读, 导致
 // 里面过时的 LLAMA_CTX=32768 等从未生效, 也让切模型/调参必须改代码)。
@@ -141,6 +146,8 @@ export function apply(ctx, config) {
   const nCpuMoe = getenv('LLAMA_N_CPU_MOE') || DEFAULT_N_CPU_MOE
   const moeCacheMib = getenv('LLAMA_MOE_CACHE_MIB') || DEFAULT_MOE_CACHE_MIB
   const loadMode = getenv('LLAMA_LOAD_MODE') || DEFAULT_LOAD_MODE
+  const batchSize = String(getenv('LLAMA_BATCH') || DEFAULT_BATCH)
+  const ubatchSize = String(getenv('LLAMA_UBATCH') || DEFAULT_UBATCH)
 
   ctx.effect(() => {
     let child = null
@@ -173,8 +180,11 @@ export function apply(ctx, config) {
           '--cache-type-v', 'q4_0',
           // 多线程推理 (CPU 线程数; MoE 专家在 CPU 上跑时可调大)
           '-t', threads,
-          // 批处理大小 (提升长 prompt 预填充吞吐量; 9B 模型在 4060 8GB 上 512 安全)
-          '-b', '512',
+          // 批处理大小 (提升长 prompt 预填充吞吐量; CPU+GPU 混合 MoE 对此极敏感)。
+          // 9B dense 全 GPU 用 2048 安全且更快; 35B-A3B cpu-moe 下 2048 使预填充翻倍(326→665 tok/s),
+          // 再大(4096)显存逼近 8GB 易 OOM。可用 LLAMA_BATCH / LLAMA_UBATCH 覆盖。
+          '-b', batchSize,
+          '-ub', ubatchSize,
           // 加载模式(可配): 默认 mmap+mlock 把模型锁在物理内存, 避免被换出造成偶发卡顿;
           // 9B dense 用默认即可。MoE 大模型(cpu-moe)须设 LLAMA_LOAD_MODE=none ——
           // mmap 的按需分页会让 CPU 专家权重频繁缺页, 拖慢解码(实测 15.8→22.8 tok/s 的关键)。

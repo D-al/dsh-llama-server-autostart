@@ -246,7 +246,10 @@ function buildArgs(p) {
     )
   }
   // 思考预算: 0/空则不追加(无限思考); >0 才限制单次生成的思考 token。
-  if (p.reasoningBudget && Number(p.reasoningBudget) > 0) {
+  // 思考预算: 显式设 0 = 立即结束思考(必须真的把 --reasoning-budget 0 传给 llama-server,
+  //   否则它用默认 -1=无限思考, 表现为"卡半天/思考吃光token/无答案")。
+  //   空串/未设 = 不追加该参数(交回 llama-server 默认)。注意用 >=0 而非 >0。
+  if (p.reasoningBudget !== '' && p.reasoningBudget !== undefined && Number.isFinite(Number(p.reasoningBudget)) && Number(p.reasoningBudget) >= 0) {
     args.push('--reasoning-budget', String(p.reasoningBudget))
   }
   // 思考呈现格式: deepseek=放进 reasoning_content(多数前端不显示 ⇒ 看不到思维链);
@@ -288,7 +291,7 @@ export function apply(ctx, config) {
             ' ctx=' + p.ctxSize + ' ngl=' + p.ngl + ' cpuMoe=' + (p.cpuMoe || p.nCpuMoe || '-') +
             ' load=' + p.loadMode + ' tb=' + (p.tb && Number(p.tb) > 0 ? p.tb : 'off') +
             ' mmprojOffload=' + p.mmprojOffload +
-            ' spec=' + p.specType + ' reasoningBudget=' + (p.reasoningBudget && Number(p.reasoningBudget) > 0 ? p.reasoningBudget : 'off'))
+            ' spec=' + p.specType + ' reasoningBudget=' + (p.reasoningBudget !== '' && p.reasoningBudget !== undefined && Number.isFinite(Number(p.reasoningBudget)) && Number(p.reasoningBudget) >= 0 ? p.reasoningBudget : 'default(-1)'))
 
           const up = await probe(p.port)
           dbg('probe(' + p.port + ') = ' + up)

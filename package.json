@@ -1,6 +1,6 @@
 {
   "name": "dsh-llama-server-autostart",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DeepSeek Harness 插件: 随 dsh 启动在后台无窗口拉起本地 llama-server(llama.cpp), 提供 OpenAI 兼容接口; 退出 dsh 时关闭本次拉起的实例。",
   "type": "module",
   "main": "index.mjs",

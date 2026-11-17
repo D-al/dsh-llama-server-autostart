@@ -1,0 +1,6 @@
+# Bundle patch for dsh-llama-server-autostart.
+# 随 dsh 启动在后台无窗口拉起本地 llama-server（router 模式，参数全走 .env.llama）；
+# 退出 dsh 时关闭本次拉起的实例；对已运行的 8081 实例执行收养而非重复拉起。
+- insert:
+    - id: llama-server-autostart
+      name: dsh-llama-server-autostart

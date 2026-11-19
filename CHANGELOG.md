@@ -2,6 +2,26 @@
 
 所有迭代以本地时间记录（UTC+8）。
 
+## [1.2.0] - 2026-11-20 01:05
+
+### Added —— 全局帧率限制（推理期间降帧，dsh 关闭全释放）
+- 新增 `frame_limiter.py`（随包发布）：推理中(`/slots` is_processing)对所有 3D 引擎占用 >=5% 的
+  非系统窗口设 EcoQoS 效率模式（Chromium 自动降帧），不最小化、不遮挡；推理停止连 2 次后释放。
+- `index.mjs` 的 `ctx.effect()` 在 llama-server 全部就绪后 spawn limiter（`--apply --fresh`，
+  无窗口 detached）；配置 `FRAME_LIMIT_ENABLED/PY/VERBOSE/EXCLUDE_PID/LOG`，默认开启，
+  `FRAME_LIMIT_ENABLED=0` 可关。
+- **关闭全释放（三重保险）**：
+  ① dispose 先 `SIGTERM` limiter 再同步跑 `--release-all`（Windows 下 kill 不触发 Python finally）；
+  ② limiter 带 `--parent-pid`，每轮检测父进程存活，父死自动 `release_all` 退出；
+  ③ 启动时清理上次残留的 state（防 Force kill 遗留 EcoQoS）。
+- 实测：dsh 重启后 limiter 自动 spawn（pid 13100，`--apply --fresh`）；父进程死亡自愈测试
+  `parent_gone → release_all_done → stop` 通过；`--release-all` 成功撤销残留 pid。
+
+### Note
+- 背景：单 GPU 无核显，nvidia-smi 聚合 util% 会显示 100%，但分引擎看是 3D(WorkBuddy/dwm UI)
+  与 Copy(llama.cpp MoE 换入)竞争；聚合值误导，必须按 pid+engtype 判断。
+- `frame_limiter.py` 与 harness 仓库 `dsh-behavior-guard/tools/frame_limiter.py` 同源。
+
 ## [1.1.1] - 2026-11-17 21:45
 
 ### Added

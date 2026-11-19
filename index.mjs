@@ -19,7 +19,7 @@
 //   - dsh 前端(cordis.patch.yml)把两个模型 id 分别指到各自端口, 下拉框即"瞬时切换",
 //     无需改配置 / 重启 dsh / 重载模型。
 //   - 兼容旧单模型配置: 若设了 LLAMA_MODEL(平铺键)且无 LLAMA_PROFILES, 走 legacy 单实例。
-import { spawn, execFile } from 'node:child_process'
+import { spawn, execFile, execFileSync } from 'node:child_process'
 import net from 'node:net'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -467,6 +467,22 @@ export const name = 'llama-server-autostart'
 
 export function apply(ctx, config) {
   dbg('apply called (dual-instance)')
+  // ── 全局帧率限制器(推理期间对所有窗口降帧, dsh 退出时全部撤销) ──
+  // 默认开启: FRAME_LIMIT_ENABLED=0 / false / no / off 或 config.frameLimitEnabled=false 可关闭。
+  const flEnabledRaw = getenv('FRAME_LIMIT_ENABLED')
+  const frameLimitEnabled = flEnabledRaw === undefined
+    ? (config && config.frameLimitEnabled) !== false
+    : !/^(0|false|no|off)$/i.test(String(flEnabledRaw))
+  const frameLimiterPy = (() => {
+    const p = getenv('FRAME_LIMIT_PY') || getenv('PYTHON')
+    if (p && fs.existsSync(p)) return p
+    if (fs.existsSync('D:/Python/python.exe')) return 'D:/Python/python.exe'
+    return 'python' // 最后回退 PATH
+  })()
+  const frameLimiterScript = path.join(__dirname, 'frame_limiter.py')
+  const frameLimiterVerbose = /^(1|true|yes|on)$/i.test(String(getenv('FRAME_LIMIT_VERBOSE') || ''))
+  const frameLimiterExcludePid = Number.parseInt(getenv('FRAME_LIMIT_EXCLUDE_PID') || '0', 10) || 0
+  dbg(`frame-limit cfg: enabled=${frameLimitEnabled} py=${frameLimiterPy} verbose=${frameLimiterVerbose} excludePid=${frameLimiterExcludePid} scriptExists=${fs.existsSync(frameLimiterScript)}`)
   // 二进制目录按引擎分开：上游用 LLAMA_SERVER_DIR，ik 用 LLAMA_SERVER_DIR_IK
   // （踩过坑：只切 LLAMA_ENGINE 但 LLAMA_SERVER_DIR 还指着 ik 目录时，会用 ik 的二进制跑上游参数，
   //   ik 不认识 --models-preset 直接退出，日志里只有一句 unknown argument）。
@@ -488,6 +504,63 @@ export function apply(ctx, config) {
 
   ctx.effect(() => {
     const children = []   // 本次拉起/收养的所有实例: { pid, port, tag }
+
+    let limiterChild = null   // frame_limiter.py --apply 常驻子进程
+    let disposed = false      // dispose 已调用: 阻止 bootAll 结束后再启动 limiter
+
+    // 启动全局帧率限制器: llama-server 全部就绪后调用, 无窗口常驻。
+    const startLimiter = () => {
+      if (!frameLimitEnabled) { dbg('frame-limit 已禁用(FRAME_LIMIT_ENABLED/config), 跳过限帧器'); return }
+      if (!fs.existsSync(frameLimiterScript)) { dbg('frame-limit 脚本缺失: ' + frameLimiterScript + ', 跳过'); return }
+      if (disposed) { dbg('frame-limit 已 dispose, 跳过启动限帧器'); return }
+      try {
+        const extra = []
+        if (frameLimiterVerbose) extra.push('--verbose')
+        if (frameLimiterExcludePid > 0) extra.push('--exclude-pid', String(frameLimiterExcludePid))
+        // 父进程看门狗：limiter 是 detached 子进程，dsh 崩/被强杀时 dispose 可能来不及跑；
+        // 显式传父 pid，limiter 每轮检测父进程存活，父死则自动 release_all 退出（双保险之一）。
+        if (process.pid > 0) extra.push('--parent-pid', String(process.pid))
+        extra.push('--fresh') // 不继承上次崩溃残留的 state, 避免误释放别人的 EcoQoS
+        const limiterLog = getenv('FRAME_LIMIT_LOG') || path.join(__dirname, 'frame-limiter.log')
+        const logFd = fs.openSync(limiterLog, 'a')
+        limiterChild = spawn(frameLimiterPy, [frameLimiterScript, '--apply', ...extra], {
+          cwd: __dirname,
+          stdio: ['ignore', logFd, logFd],
+          windowsHide: true,
+          detached: true,
+          creationFlags: 0x08000000, // CREATE_NO_WINDOW
+        })
+        fs.closeSync(logFd)
+        limiterChild.unref()
+        dbg('frame-limit 已启动 pid=' + limiterChild.pid + ' args=--apply ' + extra.join(' ') + ' log=' + limiterLog)
+        limiterChild.on('error', (e) => dbg('frame-limit spawn ERROR: ' + (e && e.message)))
+        limiterChild.on('exit', (code) => dbg('frame-limit 退出 code=' + code))
+      } catch (e) { dbg('frame-limit 启动 EXCEPTION: ' + (e && e.message)) }
+    }
+
+    // 停止限帧器: 先 SIGTERM, 再同步跑 --release-all 兜底(双保险)。
+    const stopLimiter = () => {
+      if (limiterChild) {
+        try {
+          if (limiterChild.pid) {
+            limiterChild.kill('SIGTERM')
+            dbg('frame-limit 已发 SIGTERM pid=' + limiterChild.pid + ' (finally 应释放全部 EcoQoS)')
+          }
+        } catch (e) { dbg('frame-limit kill EXCEPTION: ' + (e && e.message)) }
+        limiterChild = null
+      }
+      // Windows 下 Node.kill() 走 TerminateProcess, Python 的 finally 不会执行;
+      // 同步跑一次 --release-all 读 state 文件强制撤销, 确保不残留 EcoQoS。
+      if (fs.existsSync(frameLimiterScript)) {
+        try {
+          execFileSync(frameLimiterPy, [frameLimiterScript, '--release-all'], {
+            cwd: __dirname, windowsHide: true, timeout: 4000, stdio: 'ignore',
+            creationFlags: 0x08000000,
+          })
+          dbg('frame-limit --release-all 兜底完成')
+        } catch (e) { dbg('frame-limit --release-all 兜底 EXCEPTION: ' + (e && e.message)) }
+      }
+    }
 
     // 通过 netstat -ano 找到占用端口的 PID，并确认进程名是 llama-server
     const pidOfPort = (port) => new Promise((resolve) => {
@@ -576,11 +649,17 @@ export function apply(ctx, config) {
           const ok = await waitReady(p.port, 180000)
           dbg('实例 ' + profile + ' 端口 ' + p.port + ' 就绪=' + ok)
         }
+        // 所有实例处理完毕后拉起全局帧率限制器(推理期间对所有窗口降帧)
+        startLimiter()
       } catch (e) { dbg('bootAll EXCEPTION: ' + (e && e.message)) }
     }
     bootAll()
 
     return () => {
+      disposed = true
+      // 关键顺序: 先停限帧器(SIGTERM + --release-all 兜底), 再停 llama-server。
+      // 保证 dsh 关闭/插件卸载时 EcoQoS 降帧被撤销, 不残留。
+      stopLimiter()
       dbg('disposer called, 关闭 ' + children.length + ' 个实例')
       for (const c of children) {
         try {

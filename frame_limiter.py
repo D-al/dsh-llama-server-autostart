@@ -56,9 +56,9 @@ IDLE_RELEASE = int(os.environ.get("FL_IDLE_RELEASE", "2"))  # 连续 N 次无推
 # 无 3D 才释放（hysteresis，与 Governor 的"降级靠 hysteresis"同理）。
 RELEASE_STREAK = int(os.environ.get("FL_RELEASE_STREAK", "4"))  # 连续 N 轮无 3D 才释放
 SKIP_PIDS = {4, 0}                                          # dwm/system 不降
-SKIP_NAMES = {"dwm.exe", "system", "registry", "deepseek harness"}  # 按名再排一次(dwm 子进程 pid 不是 4)
-# 2026-11-21：dsh 自己是宿主，不能降它的帧——它偶尔有 3D(窗口渲染 45%)，
-# 限它等于给推理加压。真凶是 WorkBuddy/explorer 等外部 UI。父进程链也排除。
+SKIP_NAMES = {"dwm.exe", "system", "registry"}  # 按名再排一次(dwm 子进程 pid 不是 4)
+# 2026-11-21 用户明确纠正：dsh 窗口也要限——它的 3D 渲染(45%)同样和 llama 推理抢核心。
+# 唯一豁免是 dwm(桌面合成，限了会整体掉帧)。dsh/WorkBuddy/explorer 一视同仁。
 
 PS_ENGINE = r'''
 Get-Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction SilentlyContinue |

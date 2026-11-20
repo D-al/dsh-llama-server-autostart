@@ -51,6 +51,10 @@ SLOTS = "http://127.0.0.1:8081/slots?model=Qwen3.6-35B-A3B-UD-Q4_K_XL"  # router
 POLL = float(os.environ.get("FL_POLL", "1.5"))
 FRAME_3D_MIN = float(os.environ.get("FL_3D_MIN", "5"))     # 3D 占用超过此值算"在渲染"，降帧
 IDLE_RELEASE = int(os.environ.get("FL_IDLE_RELEASE", "2"))  # 连续 N 次无推理后释放
+# 2026-11-21：粘性释放——WorkBuddy 3D 渲染是突发的(59%→0→59%)，单轮掉到阈值下就
+# RELEASE 会让它在 THROTTLE/RELEASE 间横跳，每次释放都满帧抢核心。改为连续 N 轮
+# 无 3D 才释放（hysteresis，与 Governor 的"降级靠 hysteresis"同理）。
+RELEASE_STREAK = int(os.environ.get("FL_RELEASE_STREAK", "4"))  # 连续 N 轮无 3D 才释放
 SKIP_PIDS = {4, 0}                                          # dwm/system 不降
 SKIP_NAMES = {"dwm.exe", "system", "registry"}              # 按名再排一次(dwm 子进程 pid 不是 4)
 
@@ -204,6 +208,7 @@ def run(args):
         log("stale_state_found", pids=sorted(stale))
         release_all(stale, "startup_cleanup")
     active = set()
+    absent = {}   # pid -> 连续无 3D 轮数（粘性释放，避免突发渲染导致横跳）
     idle = 0
     stop = {"flag": False}
 
@@ -233,22 +238,31 @@ def run(args):
                     idle = 0
                     cur = sample_3d()
                     for pid, val in cur.items():
-                        if pid == args.exclude_pid or pid in active:
+                        if pid in cur and pid in active:
+                            absent[pid] = 0   # 又在渲染 → 清零缺席计数（保持限帧）
+                            continue
+                        if pid == args.exclude_pid:
                             continue
                         ok, err = eco_qos(pid, True)
                         if ok:
                             active.add(pid)
+                            absent[pid] = 0
                             save_state(active)
                             log("THROTTLE", pid=pid, name=pid_name(pid), eng3d=round(val, 1))
                         elif args.verbose:
                             log("throttle_fail", pid=pid, err=str(err)[:60])
-                    # 已不在渲染的 pid 提前释放(避免长期挂着)
+                    # 粘性释放：连续 RELEASE_STREAK 轮无 3D 才释放（避免突发渲染横跳）
                     for pid in list(active):
-                        if pid not in cur:
-                            eco_qos(pid, False)
-                            active.discard(pid)
-                            save_state(active)
-                            log("RELEASE", pid=pid, reason="no_3d")
+                        if pid in cur:
+                            absent[pid] = 0
+                        else:
+                            absent[pid] = absent.get(pid, 0) + 1
+                            if absent[pid] >= RELEASE_STREAK:
+                                eco_qos(pid, False)
+                                active.discard(pid)
+                                absent.pop(pid, None)
+                                save_state(active)
+                                log("RELEASE", pid=pid, reason=f"no_3d_{absent[pid]}streak")
                     if args.verbose:
                         log("sample", proc=True, active=len(active), pids3d=len(cur))
                 else:

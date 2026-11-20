@@ -45,7 +45,7 @@ LOG = os.path.join(HERE, "_frame_limiter.jsonl")
 STATE = os.path.join(HERE, "_frame_limiter_state.json")
 NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
-SLOTS = "http://127.0.0.1:8081/slots"
+SLOTS = "http://127.0.0.1:8081/slots?model=Qwen3.6-35B-A3B-UD-Q4_K_XL"  # router 必须带 model，否则 400 → is_processing 永远 False
 
 # 判据阈值(环境变量可覆盖)
 POLL = float(os.environ.get("FL_POLL", "1.5"))
